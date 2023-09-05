@@ -1,18 +1,25 @@
 <template>
-  <HoppSmartTabs
-    v-model="currentTab"
-    styles="sticky overflow-x-auto flex-shrink-0 bg-primary top-0 z-10"
-    content-styles="h-[calc(100%-var(--sidebar-primary-sticky-fold)-1px)] !flex"
-  >
-    <HoppSmartTab
-      v-for="{ target, title } in REALTIME_NAVIGATION"
-      :id="target"
-      :key="target"
-      :label="title"
-    >
-      <RouterView />
-    </HoppSmartTab>
-  </HoppSmartTabs>
+  <AppPaneLayout layout-id="realtime">
+    <template #primary>
+      <HoppSmartTabs
+        v-model="currentTab"
+        styles="sticky overflow-x-auto flex-shrink-0 bg-primary top-0 z-10"
+        content-styles="h-[calc(100%-var(--sidebar-primary-sticky-fold)-1px)] !flex"
+      >
+        <HoppSmartTab
+          v-for="{ target, title } in REALTIME_NAVIGATION"
+          :id="target"
+          :key="target"
+          :label="title"
+        >
+          <RouterView />
+        </HoppSmartTab>
+      </HoppSmartTabs>
+    </template>
+    <template #sidebar>
+      <RealtimeSidebar />
+    </template>
+  </AppPaneLayout>
 </template>
 
 <script setup lang="ts">

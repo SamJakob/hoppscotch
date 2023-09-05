@@ -44,7 +44,7 @@
               @keyup.escape="hide()"
             >
               <HoppSmartItem
-                v-for="(contentTypeItem, index) in validContentTypes"
+                v-for="(contentTypeItem, index) in validRealtimeContentTypes"
                 :key="`contentTypeItem-${index}`"
                 :label="contentTypeItem"
                 :info-icon="
@@ -154,6 +154,12 @@ import { isJSONContentType } from "@helpers/utils/contenttypes"
 import { defineActionHandler } from "~/helpers/actions"
 import { getPlatformSpecialKey as getSpecialKey } from "~/helpers/platformutils"
 
+import {
+  knownRealtimeContentTypes,
+  validRealtimeContentTypes,
+  ValidRealtimeContentTypes,
+} from "@hoppscotch/data"
+
 defineProps({
   showEventField: {
     type: Boolean,
@@ -195,18 +201,13 @@ const payload = ref<HTMLInputElement>()
 const prettifyIcon = refAutoReset<Component>(IconWand2, 1000)
 const clearInputOnSend = ref(false)
 
-const knownContentTypes = {
-  JSON: "application/ld+json",
-  Raw: "text/plain",
-} as const
-
-const validContentTypes = Object.keys(knownContentTypes) as ["JSON", "Raw"]
-
-const contentType = ref<keyof typeof knownContentTypes>("JSON")
+const contentType = ref<ValidRealtimeContentTypes>("JSON")
 const eventName = ref("")
 const communicationBody = ref("")
 
-const rawInputEditorLang = computed(() => knownContentTypes[contentType.value])
+const rawInputEditorLang = computed(
+  () => knownRealtimeContentTypes[contentType.value]
+)
 const langLinter = computed(() =>
   isJSONContentType(contentType.value) ? jsonLinter : null
 )

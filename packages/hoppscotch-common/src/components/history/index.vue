@@ -96,7 +96,13 @@
           />
         </summary>
         <component
-          :is="page === 'rest' ? HistoryRestCard : HistoryGraphqlCard"
+          :is="
+            _forPage({
+              rest: () => HistoryRestCard,
+              graphql: () => HistoryGraphqlCard,
+              websocket: () => HistoryRealtimeWebsocketCard,
+            })
+          "
           v-for="(entry, index) in filteredHistoryGroup"
           :id="index"
           :key="`entry-${index}`"
@@ -153,7 +159,6 @@ import IconTrash from "~icons/lucide/trash"
 import IconFilter from "~icons/lucide/filter"
 import { computed, ref, Ref, toRaw } from "vue"
 import { useColorMode } from "@composables/theming"
-import { HoppGQLRequest, HoppRESTRequest } from "@hoppscotch/data"
 import { groupBy, escapeRegExp, filter } from "lodash-es"
 import { useTimeAgo } from "@vueuse/core"
 import { pipe } from "fp-ts/function"
@@ -164,22 +169,30 @@ import { useToast } from "@composables/toast"
 import {
   restHistory$,
   graphqlHistory$,
+  wsHistory$,
   clearRESTHistory,
   clearGraphqlHistory,
+  clearWebSocketHistory,
   toggleGraphqlHistoryEntryStar,
   toggleRESTHistoryEntryStar,
+  toggleWebSocketHistoryEntryStar,
   deleteGraphqlHistoryEntry,
   deleteRESTHistoryEntry,
+  deleteWebSocketHistoryEntry,
   RESTHistoryEntry,
   GQLHistoryEntry,
+  WSHistoryEntry,
 } from "~/newstore/history"
 
 import HistoryRestCard from "./rest/Card.vue"
 import HistoryGraphqlCard from "./graphql/Card.vue"
+import HistoryRealtimeWebsocketCard from "./realtime/websocket/Card.vue"
+
 import { createNewTab } from "~/helpers/rest/tab"
 import { defineActionHandler, invokeAction } from "~/helpers/actions"
 
-type HistoryEntry = GQLHistoryEntry | RESTHistoryEntry
+type Page = "rest" | "graphql" | "websocket"
+type HistoryEntry = RESTHistoryEntry | GQLHistoryEntry | WSHistoryEntry
 
 type TimedHistoryEntry = {
   entry: HistoryEntry
@@ -187,8 +200,37 @@ type TimedHistoryEntry = {
 }
 
 const props = defineProps<{
-  page: "rest" | "graphql"
+  page: Page
 }>()
+
+function _valuePerPage<T>(values: { [Property in Page]: T }) {
+  return values[props.page]
+}
+
+function _forPage(handlers: {
+  rest?: () => any
+  graphql?: () => any
+  websocket?: () => any
+}) {
+  const handler = handlers[props.page]
+  if (handler !== undefined) {
+    return handler()
+  }
+}
+
+function _entryForPage(
+  entry: HistoryEntry,
+  handlers: {
+    rest?: (entry: RESTHistoryEntry) => any
+    graphql?: (entry: GQLHistoryEntry) => any
+    websocket?: (entry: WSHistoryEntry) => any
+  }
+) {
+  const handler = handlers[props.page]
+  if (handler !== undefined) {
+    return handler(entry as any)
+  }
+}
 
 const toast = useToast()
 const t = useI18n()
@@ -198,8 +240,12 @@ const filterText = ref("")
 const showMore = ref(false)
 const confirmRemove = ref(false)
 
-const history = useReadonlyStream<RESTHistoryEntry[] | GQLHistoryEntry[]>(
-  props.page === "rest" ? restHistory$ : graphqlHistory$,
+const history = useReadonlyStream<HistoryEntry[]>(
+  _valuePerPage({
+    rest: restHistory$,
+    graphql: graphqlHistory$,
+    websocket: wsHistory$,
+  }),
   []
 )
 
@@ -277,68 +323,63 @@ const filteredHistoryGroups = computed(() =>
   )
 )
 
-const getAppropriateURL = (entry: HistoryEntry) => {
-  if (props.page === "rest") {
-    return (entry.request as HoppRESTRequest).endpoint
-  } else if (props.page === "graphql") {
-    return (entry.request as HoppGQLRequest).url
-  }
-}
+const getAppropriateURL = (entry: HistoryEntry) =>
+  _entryForPage(entry, {
+    rest: (entry) => entry.request.endpoint,
+    graphql: (entry) => entry.request.url,
+    websocket: (entry) => entry.command.url,
+  })
 
 const clearHistory = () => {
-  if (props.page === "rest") clearRESTHistory()
-  else clearGraphqlHistory()
+  _forPage({
+    rest: clearRESTHistory,
+    graphql: clearGraphqlHistory,
+    websocket: clearWebSocketHistory,
+  })
   toast.success(`${t("state.history_deleted")}`)
 }
 
 // NOTE: For GQL, the HistoryGraphqlCard component already implements useEntry
 // (That is not a really good behaviour tho ¯\_(ツ)_/¯)
-const useHistory = (entry: RESTHistoryEntry) => {
-  createNewTab({
-    request: entry.request,
-    isDirty: false,
+const useHistory = (entry: HistoryEntry) =>
+  _entryForPage(entry, {
+    rest(entry) {
+      createNewTab({
+        request: entry.request,
+        isDirty: false,
+      })
+    },
   })
-}
-
-const isRESTHistoryEntry = (
-  entries: TimedHistoryEntry[]
-): entries is Array<TimedHistoryEntry & { entry: RESTHistoryEntry }> =>
-  // If the page is rest, then we can guarantee what we have is a RESTHistoryEnry
-  props.page === "rest"
 
 const deleteBatchHistoryEntry = (entries: TimedHistoryEntry[]) => {
-  if (isRESTHistoryEntry(entries)) {
-    entries.forEach((entry) => {
-      deleteRESTHistoryEntry(entry.entry)
-    })
-  } else {
-    entries.forEach((entry) => {
-      deleteGraphqlHistoryEntry(entry.entry as GQLHistoryEntry)
-    })
-  }
+  entries.forEach((entry) => deleteHistory(entry.entry))
   toast.success(`${t("state.deleted")}`)
 }
 
 const deleteHistory = (entry: HistoryEntry) => {
-  if (props.page === "rest") deleteRESTHistoryEntry(entry as RESTHistoryEntry)
-  else deleteGraphqlHistoryEntry(entry as GQLHistoryEntry)
+  _entryForPage(entry, {
+    rest: deleteRESTHistoryEntry,
+    graphql: deleteGraphqlHistoryEntry,
+    websocket: deleteWebSocketHistoryEntry,
+  })
   toast.success(`${t("state.deleted")}`)
 }
 
-const addToCollection = (entry: HistoryEntry) => {
-  if (props.page === "rest") {
-    invokeAction("request.save-as", {
-      request: entry.request,
-    })
-  }
-}
+const addToCollection = (entry: HistoryEntry) =>
+  _entryForPage(entry, {
+    rest(entry) {
+      invokeAction("request.save-as", {
+        request: entry.request,
+      })
+    },
+  })
 
-const toggleStar = (entry: HistoryEntry) => {
-  // History entry type specified because function does not know the type
-  if (props.page === "rest")
-    toggleRESTHistoryEntryStar(entry as RESTHistoryEntry)
-  else toggleGraphqlHistoryEntryStar(entry as GQLHistoryEntry)
-}
+const toggleStar = (entry: HistoryEntry) =>
+  _entryForPage(entry, {
+    rest: toggleRESTHistoryEntryStar,
+    graphql: toggleGraphqlHistoryEntryStar,
+    websocket: toggleWebSocketHistoryEntryStar,
+  })
 
 defineActionHandler("history.clear", () => {
   confirmRemove.value = true
